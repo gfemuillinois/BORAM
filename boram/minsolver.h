@@ -57,7 +57,7 @@ using RefEigenVec = Eigen::Ref<EigenVec<T>>;
  *       jacobian matrix, compute the solution using the vector given as argument and 
  *       overwrite it with the solution.
  * 
- *    AQUINATHAN Shouldn't we also implement solveAnalysis?
+ *    AQUINATHAN Shouldn't we also implement solveAnalysis? AM uses it for each physics
  *    AQUINATHAN Shouldn't we also implement computeEnergy?
  */
 template <typename Foo, typename realType = double>

@@ -1,9 +1,9 @@
 /*
 MIT License
 
-© 2023 Nathan Shauer
+© 2025 Nathan Shauer
 
-phasefield-jr
+phasefield-jr-boram
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
