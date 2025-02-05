@@ -1,4 +1,4 @@
-phasefield-jr-boram
+# phasefield-jr-boram
 #### Simple one file C++ examples to run 2D phase field problems using Boram solver
 
 This project provides simple C++ examples to solve 2D phase field problems using the Boram solver. It includes detailed instructions for configuration, building, and running the examples on different platforms.
