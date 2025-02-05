@@ -357,36 +357,35 @@ public:
       }
     }
   }
-  
-double calculateSigmaDotEps(const Element &element, const MatrixXd &dN, MaterialParameters& mat) {
-  double sigmaDotEps = 0.;
-  // Calculate the derivative of the elastic solution using dN and Uelas
-  MatrixXd dU = MatrixXd::Zero(2, 2);
-  for (int i = 0; i < 4; ++i) {
-    int index = 2 * element.node_ids[i];
-    dU(0, 0) += dN(0, i) * _p_otherPhysics->getU()(index); // duxdx
-    dU(0, 1) += dN(1, i) * _p_otherPhysics->getU()(index); // duxdy
-    dU(1, 0) += dN(0, i) * _p_otherPhysics->getU()(index + 1); // duydx
-    dU(1, 1) += dN(1, i) * _p_otherPhysics->getU()(index + 1); // duydy
+
+  double calculateSigmaDotEps(const Element &element, const MatrixXd &dN, MaterialParameters &mat) {
+    double sigmaDotEps = 0.;
+    // Calculate the derivative of the elastic solution using dN and Uelas
+    MatrixXd dU = MatrixXd::Zero(2, 2);
+    for (int i = 0; i < 4; ++i) {
+      int index = 2 * element.node_ids[i];
+      dU(0, 0) += dN(0, i) * _p_otherPhysics->getU()(index);      // duxdx
+      dU(0, 1) += dN(1, i) * _p_otherPhysics->getU()(index);      // duxdy
+      dU(1, 0) += dN(0, i) * _p_otherPhysics->getU()(index + 1);  // duydx
+      dU(1, 1) += dN(1, i) * _p_otherPhysics->getU()(index + 1);  // duydy
+    }
+
+    // Calculate strain tensor
+    MatrixXd strain = 0.5 * (dU + dU.transpose());
+
+    // Convert strain to a vector
+    VectorXd strain_vec(3);
+    strain_vec << strain(0, 0), strain(1, 1), 2 * strain(0, 1);  // note the times 2 in the off-diagonal term
+
+    // Calculate stress
+    VectorXd stress_vec = D * strain_vec;
+
+    // Calculate sigma dot epsilon
+    sigmaDotEps = stress_vec.dot(strain_vec);
+    // std::cout << "Sigma dot Epsilon: " << std::scientific << sigmaDotEps << std::endl;
+
+    return sigmaDotEps;
   }
-
-  // Calculate strain tensor
-  MatrixXd strain = 0.5 * (dU + dU.transpose());
-
-  // Convert strain to a vector
-  VectorXd strain_vec(3);
-  strain_vec << strain(0, 0), strain(1, 1), 2 * strain(0, 1); // note the times 2 in the off-diagonal term
-
-  // Calculate stress
-  VectorXd stress_vec = D * strain_vec;
-
-  // Calculate sigma dot epsilon
-  sigmaDotEps = stress_vec.dot(strain_vec);
-  // std::cout << "Sigma dot Epsilon: " << std::scientific << sigmaDotEps << std::endl;
-
-  return sigmaDotEps;
-}
-
 };
 
 //-------------------------------------------------------------------------------------------------
