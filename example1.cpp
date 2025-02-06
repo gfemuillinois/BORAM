@@ -93,8 +93,11 @@ std::ofstream outpdelta("pdelta_ex1.txt");
 // ===============================================================================
 void createRectangularMesh(std::vector<Node> &nodes, std::vector<Element> &elements, int num_elements_x, int num_elements_y, double length, double height);
 void shapeFunctions(MatrixXd &N, MatrixXd &dN, const double qsi, const double eta, const int nstate);
-void applyBoundaryConditions(MatrixXd &K, VectorXd &F, const std::vector<BC> &bc_nodes);
 void generateVTKLegacyFile(const std::vector<Node> &nodes, const std::vector<Element> &elements, const std::string &filename, const VectorXd &Uelas, const VectorXd &Upf);
+void solveStepHardCode(const std::vector<Node> &nodes, const std::vector<Element> &elements, MaterialParameters &material, minSolver<Physics> &solver,
+                       const int maxiter, const double stagtol);
+void solveStep(const std::vector<Node> &nodes, const std::vector<Element> &elements, MaterialParameters &material, minSolver<Physics> &solver,
+               const int maxiter, const double stagtol, const int step);
 
 // =============================== Physics Classes - Necessary for Boram solver =========================
 // ====================================================================================================
@@ -107,12 +110,19 @@ void generateVTKLegacyFile(const std::vector<Node> &nodes, const std::vector<Ele
 */
 class Physics{
 protected:
+  std::vector<Node> _nodes;
+  std::vector<Element> _elements;
+  MaterialParameters _material;
+
   Eigen::LLT<MatrixXd> _llt; // Factorized stiffness matrix
   MatrixXd _K; // Stiffness matrix
   VectorXd _U; // Solution vector
   VectorXd _F; // Force vector
   std::vector<QuadraturePoint> _intrule = create2x2QuadratureRule(); // Adopting 2x2 quadrature rule
   Physics* _p_otherPhysics = nullptr; // Pointer to the other physics class (Elas or PF)
+  int _ndofs = 0;
+  bool _isKcomputed = false;
+  int _step = -1;
 
 public:
   // Constructor
@@ -120,13 +130,34 @@ public:
   Physics(const Physics &obj) = delete; // not allowing copy construct
   virtual ~Physics() = default;
 
+  void setNodes(const std::vector<Node> &nodes) {
+    _nodes = nodes;
+  }
+
+  void setElements(const std::vector<Element> &elements) {
+    _elements = elements;
+  }
+
+  void setMaterial(const MaterialParameters &material) {
+    _material = material;
+  }
+
   inline void setOtherPhysics(Physics* p_otherPhysics) {_p_otherPhysics = p_otherPhysics;}
+  inline void setStep(int step) {
+    if(step <= _step){
+      std::cerr << "Step must be greater than the current step" << std::endl;
+      throw std::exception();
+    }
+    _isKcomputed = false; // we will have to update K
+    _step = step;
+  }
 
   // --- Helper methods specific to this implementation of the Physics class ---
   inline void initializeStructures(const int ndofs) {
     _K = MatrixXd::Zero(ndofs, ndofs);
     _U = VectorXd::Zero(ndofs);
-    _F = VectorXd::Zero(ndofs);    
+    _F = VectorXd::Zero(ndofs);
+    _ndofs = ndofs;
   }
 
   inline void zeroLLT() { 
@@ -137,22 +168,22 @@ public:
   inline VectorXd& getF() {return _F;}
   inline VectorXd& getU() {return _U;}
   
-  virtual void computeElementStiffness(MatrixXd &Ke, VectorXd& Fe, const std::vector<Node> &nodes, const Element &element, MaterialParameters& mat) = 0; // implemented in son classes
+  virtual void computeElementStiffness(MatrixXd &Ke, VectorXd& Fe, const Element &element) = 0; // implemented in son classes
   virtual const int nState() const = 0; // implemented in son classes
 
-  inline void assembleGlobalStiffness(const std::vector<Element> &elements, const std::vector<Node> &nodes,
-                                      MaterialParameters &mat, int nstate) {
+  virtual void assembleGlobalStiffness() {
     Timer time;
 
     _K.setZero();
     _F.setZero();
-    for (const auto &element : elements) {
+    const int nstate = nState();
+    for (const auto &element : _elements) {
       // Element stiffness matrix (for simplicity, assume a 4-node quadrilateral element)
       const int nquadnodes = 4;
       const int ndofel = nstate * nquadnodes;
       MatrixXd Ke = MatrixXd::Zero(ndofel, ndofel);
       VectorXd Fe = VectorXd::Zero(ndofel);
-      this->computeElementStiffness(Ke, Fe, nodes, element, mat);
+      this->computeElementStiffness(Ke, Fe, element);
 
       // Assemble Ke into the global stiffness matrix K
       for (int i = 0; i < nquadnodes; ++i) {
@@ -170,23 +201,20 @@ public:
         }
       }
     }
+    _isKcomputed = true;
     // time.elapsed("assembly");
   }
 
   // --- Access methods necessary for minSolver class ---
   inline const int getNumEquations() {
-    if (_K.rows() == 0) {
-      std::cerr << "Stiffness matrix has not been initialized" << std::endl;
-      throw std::exception();
-    }
-    return _K.rows();
+    return _ndofs;
   }
 
-  inline void computeRequiredData(const std::vector<Node> &nodes, const Element &element, double& detjac, MatrixXd& J_inv) {
-    const Node &n1 = nodes[element.node_ids[0]];
-    const Node &n2 = nodes[element.node_ids[1]];
-    const Node &n3 = nodes[element.node_ids[2]];
-    const Node &n4 = nodes[element.node_ids[3]];
+  inline void computeRequiredData(const Element &element, double& detjac, MatrixXd& J_inv) {
+    const Node &n1 = _nodes[element.node_ids[0]];
+    const Node &n2 = _nodes[element.node_ids[1]];
+    const Node &n3 = _nodes[element.node_ids[2]];
+    const Node &n4 = _nodes[element.node_ids[3]];
 
     // Jacobian matrix
     double base = n2.x - n1.x;
@@ -200,22 +228,25 @@ public:
     J_inv(0, 0) = dqsidx;
     J_inv(1, 1) = dqsidy;
   }
-
   
   inline void getSolution(RefEigenVec<double> U) {U = _U;}
   inline void setSolution(const EigenVec<double> U) {_U = U;}
 
   inline void computeGradient(RefEigenVec<double> grad) {
+    if(!_isKcomputed) {
+      std::cerr << "Stiffness matrix has not been computed yet. Residual is calculated using R = K*u - F" << std::endl;
+      throw std::exception();
+    }
     grad = _K * _U - _F;
   }
 
   inline void computeJacobian() {
     if(!_llt.cols()){ // If the factorization has not been done yet
       _llt.compute(_K); // do factorization
-      // if(_llt.info() != Eigen::Success) {
-      //   std::cerr << "Error during the factorization of the stiffness matrix" << std::endl;
-      //   throw std::exception();
-      // }
+      if(_llt.info() != Eigen::Success) {
+        std::cerr << "Error during the factorization of the stiffness matrix" << std::endl;
+        throw std::exception();
+      }
     }
   }
 
@@ -225,13 +256,11 @@ public:
   }
 
   // Do we need this?
-  // inline void solveAnalysis() {
-  //   const EPhysType physType = _p_mPhys->type(_shp_Analys->compMesh().get());
-  //   _p_mPhys->setActiveProblemPhys(physType);
-
-  //   _p_mPhys->assembleSolveMPhys(_step, physType);
-
-  // }
+  inline void solveAnalysis() {
+    assembleGlobalStiffness();
+    computeJacobian();
+    solve(_F);
+  }
 
   double computeEnergy() {
     throw std::runtime_error("computeEnergy() is not implemented.");
@@ -240,16 +269,66 @@ public:
 };
 
 class PhysicsElas : public Physics {
+protected:
+  std::vector<BC> _bc_nodes;
+
 public:
   PhysicsElas() = default;
   virtual ~PhysicsElas() = default;
 
   virtual const int nState() const {return 2;}
-  virtual void computeElementStiffness(MatrixXd &Ke, VectorXd& Fe, const std::vector<Node> &nodes, const Element &element, MaterialParameters& mat) {
+  void setBCs(const std::vector<BC> &bc_nodes) {_bc_nodes = bc_nodes;}
+
+  void applyBoundaryConditions() {
+    for (const auto &bc : _bc_nodes) {
+      int row = 2 * bc.node;
+      double xval = bc.xval * pseudotime;
+      double yval = bc.yval * pseudotime;
+      if (bc.type == 0) {
+        // Dirichlet in x and y
+        _F -= _K.col(row) * xval;
+        _F -= _K.col(row + 1) * yval;
+        _K.row(row).setZero();
+        _K.col(row).setZero();
+        _K.row(row + 1).setZero();
+        _K.col(row + 1).setZero();
+        _K(row, row) = 1.0;
+        _K(row + 1, row + 1) = 1.0;
+        _F(row) = xval;
+        _F(row + 1) = yval;
+      } else if (bc.type == 1) {
+        // Dirichlet in x
+        _F -= _K.col(row) * xval;
+        _K.row(row).setZero();
+        _K.col(row).setZero();
+        _K(row, row) = 1.0;
+        _F(row) = xval;
+      } else if (bc.type == 2) {
+        // Dirichlet in y
+        _F -= _K.col(row + 1) * yval;
+        _K.row(row + 1).setZero();
+        _K.col(row + 1).setZero();
+        _K(row + 1, row + 1) = 1.0;
+        _F(row + 1) = yval;
+      } else if (bc.type == 3) {
+        // Neumann
+        _F(row) += xval;
+        _F(row + 1) += yval;
+      }
+    }
+  }
+
+  virtual void assembleGlobalStiffness() {
+    Physics::assembleGlobalStiffness();
+    applyBoundaryConditions();
+  }
+                                    
+
+  virtual void computeElementStiffness(MatrixXd &Ke, VectorXd& Fe, const Element &element) {
 
     double detjac;
     MatrixXd J_inv;
-    computeRequiredData(nodes, element, detjac, J_inv);
+    computeRequiredData(element, detjac, J_inv);
 
     MatrixXd B;
     for (const auto &qp : _intrule) {
@@ -285,13 +364,13 @@ public:
     }
   }
 
-  VectorXd &computeSigmaAtCenter(const Element &element, std::vector<Node> &nodes, VectorXd &stress_vec) {
+  VectorXd &computeSigmaAtCenter(const Element &element, VectorXd &stress_vec) {
     // Calculate the derivative of the elastic solution using dN and Uelas
     double qsi = 0., eta = 0.;  // center of element
 
     double detjac;
     MatrixXd J_inv;
-    computeRequiredData(nodes, element, detjac, J_inv);
+    computeRequiredData(element, detjac, J_inv);
 
     MatrixXd N, dN;
     shapeFunctions(N, dN, qsi, eta, 2);
@@ -331,13 +410,13 @@ public:
 
   virtual const int nState() const {return 1;}
 
-  virtual void computeElementStiffness(MatrixXd &Ke, VectorXd& Fe, const std::vector<Node> &nodes, const Element &element, MaterialParameters& mat) {
+  virtual void computeElementStiffness(MatrixXd &Ke, VectorXd& Fe, const Element &element) {
 
     double detjac;
     MatrixXd J_inv;
-    computeRequiredData(nodes, element, detjac, J_inv);
+    computeRequiredData(element, detjac, J_inv);
 
-    double G = mat.G, l = mat.l;
+    double G = _material.G, l = _material.l;
     double c0 = 2.;
 
     for (const auto &qp : _intrule) {
@@ -347,7 +426,7 @@ public:
       // Transform derivatives to global coordinates
       MatrixXd dN_xy = J_inv.transpose() * dN.transpose();
 
-      double sigmaDotEps = calculateSigmaDotEps(element, dN_xy, mat);
+      double sigmaDotEps = calculateSigmaDotEps(element, dN_xy);
 
       for (int i = 0; i < 4; ++i) {
         Fe[i] += detjac * qp.weight * 0.5 * sigmaDotEps * N(0, i);
@@ -358,7 +437,7 @@ public:
     }
   }
 
-  double calculateSigmaDotEps(const Element &element, const MatrixXd &dN, MaterialParameters &mat) {
+  double calculateSigmaDotEps(const Element &element, const MatrixXd &dN) {
     double sigmaDotEps = 0.;
     // Calculate the derivative of the elastic solution using dN and Uelas
     MatrixXd dU = MatrixXd::Zero(2, 2);
@@ -404,8 +483,8 @@ int main() {
   double l = 10.; // Length scale parameter
 
   // Define mesh and time step parameters
-  int num_elements_x = 100; // number of elements in x direction
-  int num_elements_y = 10; // number of elements in y direction
+  int num_elements_x = 50; // number of elements in x direction
+  int num_elements_y = 5; // number of elements in y direction
   double length = 200.; // length of the domain
   double height = 20.; // height of the domain
   double dt = 0.02; // pseudo time step
@@ -457,53 +536,33 @@ int main() {
   physics_pf->setOtherPhysics(physics_elas);
   physics_elas->initializeStructures(ndofs_elas);
   physics_pf->initializeStructures(ndofs_pf);
-  minSolver<Physics> amSolver;
+  physics_elas->setBCs(bc_nodes);
+  alternMinSolver<Physics> amSolver;
   amSolver.addPhysics(physics_elas);
   amSolver.addPhysics(physics_pf);
+  amSolver.monitorName("AM_monitor.txt");
 
+  // Set nodes, elements, and material for each physics
+  for (auto &phys : amSolver.getPhysics()) {
+    phys->setNodes(nodes);
+    phys->setElements(elements);
+    phys->setMaterial(material);
+  }
 
   VectorXd residual = VectorXd::Zero(ndofs_elas);
   for (int step = 0; step < maxsteps; ++step) {    
     pseudotime += dt;
     if(pseudotime > totaltime) break;
+    for (auto &phys : amSolver.getPhysics()) {phys->setStep(step);}
     std::cout << "******************** Time Step " << step << " | Pseudo time = " << std::fixed << std::setprecision(6) << pseudotime << " | Time step = " << dt << " ********************" << std::endl;
-    int iter = 0;
-    for(iter = 0 ; iter < maxiter ; iter++){
-      std::cout << "------ Staggered Iteration " << iter << " ------" << std::endl;
-      // Solve elasticity problem
-      physics_elas->assembleGlobalStiffness(elements, nodes, material, nstate_elas);      
-      applyBoundaryConditions(physics_elas->getK(), physics_elas->getF(), bc_nodes);
-      double norm;
-      if(iter != 0){
-        physics_elas->computeGradient(residual);
-        norm = residual.norm();
-        std::cout << "Residual Elasticity Norm: " << std::scientific << std::setprecision(2) << norm << std::endl;        
-      }
-      if (iter != 0 && norm < stagtol) {
-        std::cout << "------> Staggered scheme converged in " << iter << " iterations." << std::endl;
-        break;
-      }            
-      for (auto &phys : amSolver.getPhysics()) {
-        phys->zeroLLT();
-      }
-
-      physics_elas->computeJacobian();
-      physics_elas->solve(physics_elas->getF());
-
-      // Solve phase field problem    
-      physics_pf->assembleGlobalStiffness(elements, nodes, material, nstate_pf);
-      physics_pf->computeJacobian();
-      physics_pf->solve(physics_pf->getF());    
-    }
-    if(iter == maxiter){
-      std::cout << "------> Staggered scheme did not converge in " << maxiter << " iterations." << "\nAccepting current solution and continuing" << std::endl;     
-    }
+    // solveStepHardCode(nodes, elements, material, amSolver, maxiter, stagtol);
+    solveStep(nodes, elements, material, amSolver, maxiter, stagtol, step);
     std::string filename = basefilename + std::to_string(step) + vtkextension;
     generateVTKLegacyFile(nodes, elements, filename, physics_elas->getU(), physics_pf->getU());
 
     VectorXd sig;
     int elToSample = num_elements_x / 2;
-    physics_elas->computeSigmaAtCenter(elements[elToSample],nodes,sig);
+    physics_elas->computeSigmaAtCenter(elements[elToSample],sig);
     
     outpdelta << pseudotime << " " << sig[0] << std::endl;
   }
@@ -580,46 +639,6 @@ void shapeFunctions(MatrixXd &N, MatrixXd &dN, const double qsi, const double et
       0.25 * (-1 - eta), 0.25 * (1 - qsi);
 }
 
-
-void applyBoundaryConditions(MatrixXd &K, VectorXd &F, const std::vector<BC> &bc_nodes) {
-  for (const auto &bc : bc_nodes) {
-    int row = 2 * bc.node;
-    double xval = bc.xval * pseudotime;
-    double yval = bc.yval * pseudotime;
-    if (bc.type == 0) {
-      // Dirichlet in x and y
-      F -= K.col(row) * xval;
-      F -= K.col(row+1) * yval;
-      K.row(row).setZero();
-      K.col(row).setZero();
-      K.row(row+1).setZero();
-      K.col(row+1).setZero();
-      K(row, row) = 1.0;      
-      K(row + 1, row + 1) = 1.0;
-      F(row) = xval;
-      F(row + 1) = yval;
-    } else if (bc.type == 1) {
-      // Dirichlet in x      
-      F -= K.col(row) * xval;
-      K.row(row).setZero();
-      K.col(row).setZero();      
-      K(row, row) = 1.0;
-      F(row) = xval;
-    } else if (bc.type == 2) {
-      // Dirichlet in y
-      F -= K.col(row+1) * yval;
-      K.row(row+1).setZero();
-      K.col(row+1).setZero();      
-      K(row + 1, row + 1) = 1.0;
-      F(row + 1) = yval;
-    } else if (bc.type == 3) {
-      // Neumann
-      F(row) += xval;
-      F(row + 1) += yval;
-    }
-  }
-}
-
 void generateVTKLegacyFile(const std::vector<Node> &nodes, const std::vector<Element> &elements, const std::string &filename, const VectorXd& Uelas, const VectorXd& Upf) {
   std::ofstream vtkFile(filename);  
 
@@ -662,6 +681,128 @@ void generateVTKLegacyFile(const std::vector<Node> &nodes, const std::vector<Ele
 
   vtkFile.close();
 }
+
+void solveStepHardCode(const std::vector<Node> &nodes, const std::vector<Element> &elements, MaterialParameters &material, minSolver<Physics> &solver,
+               const int maxiter, const double stagtol) {
+  int iter = 0;  
+  PhysicsElas *physics_elas = dynamic_cast<PhysicsElas*>(solver.getPhysics()[0]);
+  PhysicsPF *physics_pf = dynamic_cast<PhysicsPF*>(solver.getPhysics()[1]);
+
+  VectorXd residual = VectorXd::Zero(physics_elas->getNumEquations());
+  for (iter = 0; iter < maxiter; iter++) {
+    std::cout << "------ Staggered Iteration " << iter << " ------" << std::endl;
+    // Solve elasticity problem
+    physics_elas->assembleGlobalStiffness();
+    double norm;
+    if (iter != 0) {
+      physics_elas->computeGradient(residual);
+      norm = residual.norm();
+      std::cout << "Residual Elasticity Norm: " << std::scientific << std::setprecision(2) << norm << std::endl;
+    }
+    if (iter != 0 && norm < stagtol) {
+      std::cout << "------> Staggered scheme converged in " << iter << " iterations." << std::endl;
+      break;
+    }
+    for (auto &phys : solver.getPhysics()) {
+      phys->zeroLLT();
+    }
+
+    physics_elas->computeJacobian();
+    physics_elas->solve(physics_elas->getF());
+
+    // Solve phase field problem
+    physics_pf->assembleGlobalStiffness();
+    physics_pf->computeJacobian();
+    physics_pf->solve(physics_pf->getF());
+  }
+  if (iter == maxiter) {
+    std::cout << "------> Staggered scheme did not converge in " << maxiter << " iterations." << "\nAccepting current solution and continuing" << std::endl;
+  }
+}
+
+void solveStep(const std::vector<Node> &nodes, const std::vector<Element> &elements, MaterialParameters &material, minSolver<Physics> &solver,
+               const int maxiter, const double stagtol, const int step) {
+
+  solver.monitorTimeRestart();
+  std::vector<Physics*> phys = solver.getPhysics();
+  std::vector<EigenVec<double>> resVecs(phys.size()), solVecs(phys.size()), dsolVecs(phys.size());
+
+  int nEq = 0, initPos = 0, physIndex = 0;
+  std::vector<Physics*>::iterator it;
+  for(it = phys.begin(); it != phys.end(); it++) {
+
+    int physDim = (*it)->getNumEquations();
+    nEq += physDim;
+
+    resVecs[physIndex].resize(physDim);
+    solVecs[physIndex].resize(physDim);
+    dsolVecs[physIndex].resize(physDim);
+
+    (*it)->getSolution(dsolVecs[physIndex]);
+    (*it)->assembleGlobalStiffness();
+    (*it)->computeGradient(resVecs[physIndex]);
+    (*it)->solveAnalysis();
+    (*it)->getSolution(solVecs[physIndex]);
+
+    initPos += physDim;
+    physIndex++;
+  }
+
+  // Configuring global vectors to be used in the external library
+  EigenVec<double> sol = EigenVec<double>::Zero(nEq);
+  EigenVec<double> dsol = EigenVec<double>::Zero(nEq);
+  EigenVec<double> res = EigenVec<double>::Zero(nEq);
+
+  // Initializing the global vector.
+  initPos = 0, physIndex = 0;
+  for(it = phys.begin(); it != phys.end(); it++) {
+    
+    // Number of degrees of freedom of each physics.
+    int physDim = (*it)->getNumEquations();
+
+    sol.segment(initPos, physDim) = solVecs[physIndex];
+    dsol.segment(initPos, physDim) = dsolVecs[physIndex];
+    res.segment(initPos, physDim) = resVecs[physIndex];
+    
+    // Updating global vector mapping for next physics.
+    initPos += physDim;  
+    physIndex++;
+  }  
+
+  // Computing the increment solution dX = X - Xold
+  dsol.noalias() = sol - dsol;
+
+  // Initializing the convergence criteria with the first 
+  // residual (R_0) and increment BCs vector. 
+  solver.initializeConvCriterion(res, dsol);
+
+  // Updating the residual vector (R_1)
+  solver.computeGradient(res);
+
+  // Here we are just passing the information of the step to be 
+  // solved to the convergence monitor of the external library, 
+  // so we can have a nice view of the results of each step.
+  std::string aux;
+  int skip;
+  std::stringstream line;
+  aux = "S T E P"; skip = 37 + aux.size();
+  line << std::setw(skip) << aux << std::setw(54 - skip) 
+        << std::to_string(step) << "\n\n";
+  solver.printOnConvMonitor(line.str());
+
+  // Calling solver algorithm 
+  int iSolve = solver.solveAnalysis(sol, dsol, res);
+
+  if(iSolve < 0) {
+    std::cout << "\nWARNING! Staggered scheme did not converge!!!" << std::endl;
+    std::cout << "Accepting current solution and continuing" << std::endl;
+  }
+        
+  // The problem converged as a linear problem
+  if(iSolve==0) iSolve++;  
+
+}
+
 
 // =============================== QUADRADURE RULES ==============================
 // ===============================================================================
@@ -707,3 +848,4 @@ std::vector<QuadraturePoint> create3x3QuadratureRule() {
 
   return rule;
 }
+
