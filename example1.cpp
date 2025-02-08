@@ -32,6 +32,7 @@ SOFTWARE.
 #include <chrono>
 #include <iomanip>
 #include "am.h"
+#include "lbfgs.h"
 
 using namespace Eigen;
 
@@ -122,6 +123,7 @@ protected:
   Physics* _p_otherPhysics = nullptr; // Pointer to the other physics class (Elas or PF)
   int _ndofs = 0;
   bool _isKcomputed = false;
+  bool _isDecomposed = false;
   int _step = -1;
 
 public:
@@ -171,7 +173,7 @@ public:
   virtual void computeElementStiffness(MatrixXd &Ke, VectorXd& Fe, const Element &element) = 0; // implemented in son classes
   virtual const int nState() const = 0; // implemented in son classes
 
-  virtual void assembleGlobalStiffness() {
+  virtual void assembleGlobalStiffness(const bool withBC = true) {
     Timer time;
 
     _K.setZero();
@@ -202,6 +204,7 @@ public:
       }
     }
     _isKcomputed = true;
+    _isDecomposed = false;
     // time.elapsed("assembly");
   }
 
@@ -241,14 +244,21 @@ public:
   }
 
   inline void computeJacobian() {
+    assembleGlobalStiffness();
+    factorize();
+  }
+
+  inline void factorize() {
+    if(!_isDecomposed) zeroLLT();
     if(!_llt.cols()){ // If the factorization has not been done yet
       _llt.compute(_K); // do factorization
       if(_llt.info() != Eigen::Success) {
         std::cerr << "Error during the factorization of the stiffness matrix" << std::endl;
         throw std::exception();
       }
+      _isDecomposed = true;
     }
-  }
+  }  
 
   inline void solve(RefEigenVec<double> R) {
     _llt.solveInPlace(R);  
@@ -257,13 +267,13 @@ public:
 
   // Do we need this?
   inline void solveAnalysis() {
-    assembleGlobalStiffness();
     computeJacobian();
-    solve(_F);
+    _U = _llt.solve(_F); 
   }
 
   double computeEnergy() {
-    throw std::runtime_error("computeEnergy() is not implemented.");
+    assembleGlobalStiffness(false);
+    return 0.5 * _U.dot(_K * _U);
   }
 
 };
@@ -273,6 +283,7 @@ protected:
   std::vector<BC> _bc_nodes;
 
 public:
+
   PhysicsElas() = default;
   virtual ~PhysicsElas() = default;
 
@@ -318,9 +329,12 @@ public:
     }
   }
 
-  virtual void assembleGlobalStiffness() {
-    Physics::assembleGlobalStiffness();
-    applyBoundaryConditions();
+  virtual void assembleGlobalStiffness(const bool withBC = true) {
+    Physics::assembleGlobalStiffness(withBC);
+    if (withBC){
+      applyBoundaryConditions();      
+    }
+    
   }
                                     
 
@@ -344,7 +358,7 @@ public:
       MatrixXd Ddeteriorated = D;
       // Interpolate phase field solution at quadrature points
       double phase_field = 0.0;
-      for (int i = 0; i < 4; ++i) phase_field += N(0, 2 * i) * _p_otherPhysics->getU()(element.node_ids[i]);  // N is repeated for x and y so we multiply by 2
+      for (int i = 0; i < 4; ++i) phase_field += N(0, 2 * i) * _p_otherPhysics->getU()(element.node_ids[i]);  // N is repeated for x and y so we multiply i by 2
 
       // Deteriorate the material properties based on the phase field
       Ddeteriorated *= (1 - phase_field) * (1 - phase_field);
@@ -537,13 +551,15 @@ int main() {
   physics_elas->initializeStructures(ndofs_elas);
   physics_pf->initializeStructures(ndofs_pf);
   physics_elas->setBCs(bc_nodes);
-  alternMinSolver<Physics> amSolver;
-  amSolver.addPhysics(physics_elas);
-  amSolver.addPhysics(physics_pf);
-  amSolver.monitorName("AM_monitor.txt");
+  // alternMinSolver<Physics> mySolver;
+  LBFGSSolver<Physics> mySolver;  
+  mySolver.setMaxNumIter(500);
+  mySolver.addPhysics(physics_elas);
+  mySolver.addPhysics(physics_pf);
+  mySolver.monitorName("AM_monitor.txt");
 
   // Set nodes, elements, and material for each physics
-  for (auto &phys : amSolver.getPhysics()) {
+  for (auto &phys : mySolver.getPhysics()) {
     phys->setNodes(nodes);
     phys->setElements(elements);
     phys->setMaterial(material);
@@ -553,10 +569,10 @@ int main() {
   for (int step = 0; step < maxsteps; ++step) {    
     pseudotime += dt;
     if(pseudotime > totaltime) break;
-    for (auto &phys : amSolver.getPhysics()) {phys->setStep(step);}
+    for (auto &phys : mySolver.getPhysics()) {phys->setStep(step);}
     std::cout << "******************** Time Step " << step << " | Pseudo time = " << std::fixed << std::setprecision(6) << pseudotime << " | Time step = " << dt << " ********************" << std::endl;
-    // solveStepHardCode(nodes, elements, material, amSolver, maxiter, stagtol);
-    solveStep(nodes, elements, material, amSolver, maxiter, stagtol, step);
+    // solveStepHardCode(nodes, elements, material, mySolver, maxiter, stagtol);
+    solveStep(nodes, elements, material, mySolver, maxiter, stagtol, step);
     std::string filename = basefilename + std::to_string(step) + vtkextension;
     generateVTKLegacyFile(nodes, elements, filename, physics_elas->getU(), physics_pf->getU());
 
@@ -689,6 +705,7 @@ void solveStepHardCode(const std::vector<Node> &nodes, const std::vector<Element
   PhysicsPF *physics_pf = dynamic_cast<PhysicsPF*>(solver.getPhysics()[1]);
 
   VectorXd residual = VectorXd::Zero(physics_elas->getNumEquations());
+  VectorXd residualPF = VectorXd::Zero(physics_pf->getNumEquations());
   for (iter = 0; iter < maxiter; iter++) {
     std::cout << "------ Staggered Iteration " << iter << " ------" << std::endl;
     // Solve elasticity problem
@@ -703,17 +720,23 @@ void solveStepHardCode(const std::vector<Node> &nodes, const std::vector<Element
       std::cout << "------> Staggered scheme converged in " << iter << " iterations." << std::endl;
       break;
     }
-    for (auto &phys : solver.getPhysics()) {
-      phys->zeroLLT();
-    }
 
-    physics_elas->computeJacobian();
+    physics_elas->factorize();
     physics_elas->solve(physics_elas->getF());
+    // physics_elas->solveAnalysis();
+    // physics_elas->computeGradient(residual);
+    // norm = residual.norm();
+    // std::cout << "Residual post Elasticity Norm: " << std::scientific << std::setprecision(2) << norm << std::endl;
 
     // Solve phase field problem
     physics_pf->assembleGlobalStiffness();
-    physics_pf->computeJacobian();
+    physics_pf->factorize();
     physics_pf->solve(physics_pf->getF());
+    // physics_pf->solveAnalysis();
+    // physics_pf->assembleGlobalStiffness();
+    // physics_pf->computeGradient(residualPF);
+    // norm = residualPF.norm();
+    // std::cout << "Residual post Phase Field Norm: " << std::scientific << std::setprecision(2) << norm << std::endl;
   }
   if (iter == maxiter) {
     std::cout << "------> Staggered scheme did not converge in " << maxiter << " iterations." << "\nAccepting current solution and continuing" << std::endl;
@@ -739,9 +762,9 @@ void solveStep(const std::vector<Node> &nodes, const std::vector<Element> &eleme
     dsolVecs[physIndex].resize(physDim);
 
     (*it)->getSolution(dsolVecs[physIndex]);
-    (*it)->assembleGlobalStiffness();
+    (*it)->assembleGlobalStiffness(false);
     (*it)->computeGradient(resVecs[physIndex]);
-    (*it)->solveAnalysis();
+    (*it)->solveAnalysis();    
     (*it)->getSolution(solVecs[physIndex]);
 
     initPos += physDim;
@@ -787,7 +810,7 @@ void solveStep(const std::vector<Node> &nodes, const std::vector<Element> &eleme
   std::stringstream line;
   aux = "S T E P"; skip = 37 + aux.size();
   line << std::setw(skip) << aux << std::setw(54 - skip) 
-        << std::to_string(step) << "\n\n";
+        << std::to_string(step+1) << "\n\n";
   solver.printOnConvMonitor(line.str());
 
   // Calling solver algorithm 
@@ -801,6 +824,7 @@ void solveStep(const std::vector<Node> &nodes, const std::vector<Element> &eleme
   // The problem converged as a linear problem
   if(iSolve==0) iSolve++;  
 
+  PhysicsElas *physics_elas = dynamic_cast<PhysicsElas*>(solver.getPhysics()[0]);
 }
 
 

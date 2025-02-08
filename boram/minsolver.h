@@ -435,7 +435,7 @@ protected:
          initPos += physDim; 
 
          // Computing energy
-         // energy = (*it)->computeEnergy();
+         energy = (*it)->computeEnergy();
 
          // Saving norms values to the monitoring file for each
          // physics.
