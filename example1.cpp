@@ -551,8 +551,8 @@ int main() {
   physics_elas->initializeStructures(ndofs_elas);
   physics_pf->initializeStructures(ndofs_pf);
   physics_elas->setBCs(bc_nodes);
-  // alternMinSolver<Physics> mySolver;
-  LBFGSSolver<Physics> mySolver;  
+  alternMinSolver<Physics> mySolver;
+  // LBFGSSolver<Physics> mySolver;  
   mySolver.setMaxNumIter(500);
   mySolver.addPhysics(physics_elas);
   mySolver.addPhysics(physics_pf);
@@ -826,7 +826,6 @@ void solveStep(const std::vector<Node> &nodes, const std::vector<Element> &eleme
 
   PhysicsElas *physics_elas = dynamic_cast<PhysicsElas*>(solver.getPhysics()[0]);
 }
-
 
 // =============================== QUADRADURE RULES ==============================
 // ===============================================================================
