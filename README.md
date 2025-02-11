@@ -1,12 +1,15 @@
 # phasefield-jr-boram
-#### Simple one file C++ examples to run 2D phase field problems using Boram solver
+#### Simple one file C++ examples to run 2D phase field problems using a stable LBFGS solver
 
-This project provides simple C++ examples to solve 2D phase field problems using the Boram solver. It includes detailed instructions for configuration, building, and running the examples on different platforms.
+This project provides simple C++ examples to solve 2D phase field problems using the Boram solver. The Boram solver implements a stable LBFGS with line search as published on:
+[Paper to be published](#)
+It also provides a traditional alternate minization solver for testing.
 
-The project is based on the implementation of phase field available on [https://github.com/nathanshauer/phasefield-jr](https://github.com/nathanshauer/phasefield-jr)
+The project is based on the implementation of phase field available on [https://github.com/nathanshauer/phasefield-jr](https://github.com/nathanshauer/phasefield-jr) and carries all necesary licenses.
 
-For more information about me or to get in touch, please visit my website:
-[www.nathanshauer.com](http://www.nathanshauer.com)
+Implementation by:
+Nathan Shauer ([www.nathanshauer.com](http://www.nathanshauer.com)) - Phase-field code and interface w/ solver
+Caio Ramos ([cs-ramos@outlook.com](cs-ramos@outlook.com)) - Boram solver
 
 ## Configuration
 

@@ -434,8 +434,9 @@ protected:
          // Updating global vector mapping for next physics.
          initPos += physDim; 
 
-         // Computing energy
+         // Computing energy AQUINATHAN Should we remove this function?
          energy = (*it)->computeEnergy();
+
 
          // Saving norms values to the monitoring file for each
          // physics.

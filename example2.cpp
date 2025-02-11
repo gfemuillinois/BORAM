@@ -1,7 +1,7 @@
 /*
 MIT License
 
-© 2025 Nathan Shauer
+© 2025 Nathan Shauer & Caio Silva Ramos
 
 phasefield-jr-boram
 
@@ -93,13 +93,10 @@ std::ofstream outpdelta("pdelta_ex2.txt");
 // ===============================================================================
 void createDoubleNodeMesh(std::vector<Node> &nodes, std::vector<Element> &elements, int num_elements_x, int num_elements_y, double length, double height);
 void shapeFunctions(MatrixXd &N, MatrixXd &dN, const double qsi, const double eta, const int nstate);
-void createB(MatrixXd &B, const MatrixXd &dN);
 void generateVTKLegacyFile(const std::vector<Node> &nodes, const std::vector<Element> &elements, const std::string &filename, const VectorXd &Uelas, const VectorXd &Upf);
-void solveStep(const std::vector<Node> &nodes, const std::vector<Element> &elements, MaterialParameters &material, minSolver<Physics> &solver,
-               const int maxiter, const double stagtol, const int step);
-void solveStepHardCode(const std::vector<Node> &nodes, const std::vector<Element> &elements, MaterialParameters &material, minSolver<Physics> &solver,
-                       const int maxiter, const double stagtol);  
-class PhysicsElas;
+void solveStepHardCode(minSolver<Physics>* solver, const int maxiter, const double stagtol = 1.e-6);
+void solveStep(minSolver<Physics>* solver, const int step);
+class PhysicsElas; // needed to declare computeReaction here
 void computeReaction(PhysicsElas *physics_elas, const std::vector<Node> &nodes, const std::vector<Element> &elements, MaterialParameters& mat, double& reaction);
 
 // =============================== Physics Classes - Necessary for Boram solver =========================
@@ -238,10 +235,7 @@ public:
   inline void setSolution(const EigenVec<double> U) {_U = U;}
 
   inline void computeGradient(RefEigenVec<double> grad) {
-    if(!_isKcomputed) {
-      std::cerr << "Stiffness matrix has not been computed yet. Residual is calculated using R = K*u - F" << std::endl;
-      throw std::exception();
-    }
+    assembleGlobalStiffness();
     grad = _K * _U - _F;
   }
 
@@ -507,7 +501,7 @@ int main() {
   double totaltime = 0.8;
   int maxsteps = 1e5; // maximum number of time steps (in case using adptative time step)
   int maxiter = 1000; // maximum number of iterations for the staggered scheme
-  double stagtol = 1e-7; // tolerance to consider the staggered scheme converged  
+  std::string solverType = "LBFGS"; // "alternMin" or "LBFGS"
 
   // Boundary conditions
   double imposed_displacement_y = 0.01; // such that we have nucleation at step 50
@@ -553,28 +547,44 @@ int main() {
   physics_elas->initializeStructures(ndofs_elas);
   physics_pf->initializeStructures(ndofs_pf);
   physics_elas->setBCs(bc_nodes);
-  alternMinSolver<Physics> mySolver;
-  // LBFGSSolver<Physics> mySolver;  
-  mySolver.setMaxNumIter(1000);
-  mySolver.addPhysics(physics_elas);
-  mySolver.addPhysics(physics_pf);
-  mySolver.monitorName("AM_monitor.txt");
+  minSolver<Physics>* mySolver = nullptr;
+  if(solverType == "alternMin"){
+    mySolver = new alternMinSolver<Physics>;    
+  }
+  else if (solverType == "LBFGS"){
+    mySolver = new LBFGSSolver<Physics>;
+  }
+  else{
+    std::cerr << "Solver type not recognized" << std::endl;
+    throw std::exception();
+  }
+
+  mySolver->setMaxNumIter(maxiter);
+  mySolver->addPhysics(physics_elas);
+  mySolver->addPhysics(physics_pf);
+  mySolver->monitorName("AM_monitor.txt");
+
+  // mySolver->setRelIncrSolTolerance(1.e-4);
+  // mySolver->setRelResTolerance(1.e-5);  
 
   // Set nodes, elements, and material for each physics
-  for (auto &phys : mySolver.getPhysics()) {
+  for (auto &phys : mySolver->getPhysics()) {
     phys->setNodes(nodes);
     phys->setElements(elements);
     phys->setMaterial(material);
   }
 
+  // mySolver.setRelIncrSolTolerance(1.e-4);
+  // mySolver.setRelResTolerance(1.e-5);
+
   VectorXd residual;
   for (int step = 0; step < maxsteps; ++step) {    
     pseudotime += dt;
     if(pseudotime > totaltime) break;
-    for (auto &phys : mySolver.getPhysics()) {phys->setStep(step);}
+    for (auto &phys : mySolver->getPhysics()) {phys->setStep(step);}
     std::cout << "******************** Time Step " << step << " | Pseudo time = " << std::fixed << std::setprecision(6) << pseudotime << " | Time step = " << dt << " ********************" << std::endl;
-    // solveStepHardCode(nodes, elements, material, mySolver, maxiter, stagtol);
-    solveStep(nodes, elements, material, mySolver, maxiter, stagtol, step);    
+    // solveStepHardCode(mySolver, maxiter); // hard code implementation of AM for testing
+    solveStep(mySolver, step);
     
     std::string filename = basefilename + std::to_string(step) + vtkextension;
     generateVTKLegacyFile(nodes, elements, filename, physics_elas->getU(), physics_pf->getU());
@@ -761,21 +771,19 @@ void generateVTKLegacyFile(const std::vector<Node> &nodes, const std::vector<Ele
   vtkFile.close();
 }
 
-void solveStepHardCode(const std::vector<Node> &nodes, const std::vector<Element> &elements, MaterialParameters &material, minSolver<Physics> &solver,
-               const int maxiter, const double stagtol) {
+void solveStepHardCode(minSolver<Physics>* solver, const int maxiter, const double stagtol) {
   int iter = 0;  
-  PhysicsElas *physics_elas = dynamic_cast<PhysicsElas*>(solver.getPhysics()[0]);
-  PhysicsPF *physics_pf = dynamic_cast<PhysicsPF*>(solver.getPhysics()[1]);
+  PhysicsElas *physics_elas = dynamic_cast<PhysicsElas*>(solver->getPhysics()[0]);
+  PhysicsPF *physics_pf = dynamic_cast<PhysicsPF*>(solver->getPhysics()[1]);
 
   VectorXd residual = VectorXd::Zero(physics_elas->getNumEquations());
   VectorXd residualPF = VectorXd::Zero(physics_pf->getNumEquations());
   for (iter = 0; iter < maxiter; iter++) {
     std::cout << "------ Staggered Iteration " << iter << " ------" << std::endl;
     // Solve elasticity problem
-    physics_elas->assembleGlobalStiffness();
+    physics_elas->computeGradient(residual); // this already calls assemble
     double norm;
-    if (iter != 0) {
-      physics_elas->computeGradient(residual);
+    if (iter != 0) {      
       norm = residual.norm();
       std::cout << "Residual Elasticity Norm: " << std::scientific << std::setprecision(2) << norm << std::endl;
     }
@@ -790,18 +798,17 @@ void solveStepHardCode(const std::vector<Node> &nodes, const std::vector<Element
     // Solve phase field problem
     physics_pf->assembleGlobalStiffness();
     physics_pf->factorize();
-    physics_pf->solve(physics_pf->getF());    
+    physics_pf->solve(physics_pf->getF());
   }
   if (iter == maxiter) {
     std::cout << "------> Staggered scheme did not converge in " << maxiter << " iterations." << "\nAccepting current solution and continuing" << std::endl;
   }
 }
 
-void solveStep(const std::vector<Node> &nodes, const std::vector<Element> &elements, MaterialParameters &material, minSolver<Physics> &solver,
-               const int maxiter, const double stagtol, const int step) {
+void solveStep(minSolver<Physics>* solver, const int step) {
 
-  solver.monitorTimeRestart();
-  std::vector<Physics*> phys = solver.getPhysics();
+  solver->monitorTimeRestart();
+  std::vector<Physics*> phys = solver->getPhysics();
   std::vector<EigenVec<double>> resVecs(phys.size()), solVecs(phys.size()), dsolVecs(phys.size());
 
   int nEq = 0, initPos = 0, physIndex = 0;
@@ -851,10 +858,10 @@ void solveStep(const std::vector<Node> &nodes, const std::vector<Element> &eleme
 
   // Initializing the convergence criteria with the first 
   // residual (R_0) and increment BCs vector. 
-  solver.initializeConvCriterion(res, dsol);
+  solver->initializeConvCriterion(res, dsol);
 
   // Updating the residual vector (R_1)
-  solver.computeGradient(res);
+  solver->computeGradient(res);
 
   // Here we are just passing the information of the step to be 
   // solved to the convergence monitor of the external library, 
@@ -865,20 +872,15 @@ void solveStep(const std::vector<Node> &nodes, const std::vector<Element> &eleme
   aux = "S T E P"; skip = 37 + aux.size();
   line << std::setw(skip) << aux << std::setw(54 - skip) 
         << std::to_string(step+1) << "\n\n";
-  solver.printOnConvMonitor(line.str());
+  solver->printOnConvMonitor(line.str());
 
   // Calling solver algorithm 
-  int iSolve = solver.solveAnalysis(sol, dsol, res);
+  int iSolve = solver->solveAnalysis(sol, dsol, res);
 
   if(iSolve < 0) {
     std::cout << "\nWARNING! Staggered scheme did not converge!!!" << std::endl;
     std::cout << "Accepting current solution and continuing" << std::endl;
   }
-        
-  // The problem converged as a linear problem
-  if(iSolve==0) iSolve++;  
-
-  PhysicsElas *physics_elas = dynamic_cast<PhysicsElas*>(solver.getPhysics()[0]);
 }
 
 // =============================== QUADRADURE RULES ==============================
