@@ -1,15 +1,19 @@
 # phasefield-jr-boram
-#### Simple one file C++ examples to run 2D phase field problems using a stable LBFGS solver
+#### Simple one file C++ examples to run 2D phase field problems using a robust L-BFGS solver
 
-This project provides simple C++ examples to solve 2D phase field problems using the Boram solver. The Boram solver implements a stable LBFGS with line search as published on:
+This project provides simple C++ examples to solve 2D phase field problems using the Boram solver. The Boram solver implements a robust over relaxated L-BFGS with line search as published on:
 [Paper to be published](#)
-It also provides a traditional alternate minization solver for testing.
+Additionally, the project includes a traditional alternate minimization solver for comparison purposes. Future work may involve integrating and optimizing the use of both solvers to enhance performance and robustness.
 
 The project is based on the implementation of phase field available on [https://github.com/nathanshauer/phasefield-jr](https://github.com/nathanshauer/phasefield-jr) and carries all necesary licenses.
 
 Implementation by:
-Nathan Shauer ([www.nathanshauer.com](http://www.nathanshauer.com)) - Phase-field code and interface w/ solver
-Caio Ramos ([cs-ramos@outlook.com](cs-ramos@outlook.com)) - Boram solver
+**Nathan Shauer** ([www.nathanshauer.com](http://www.nathanshauer.com)) - Phase-field code and integration w/ solver
+**Caio Ramos** ([cs-ramos@outlook.com](cs-ramos@outlook.com)) - Boram solver
+
+#### Note on the name Boram
+
+Boram has two meanings. Firstly, it is an acronym derived from the names **B**FGS, **O**ver **R**elaxated, and **A**lternate **M**inimization. Secondly, in Korean, Boram means "*worthwhile*".
 
 ## Configuration
 
@@ -128,3 +132,6 @@ To execute the notebooks:
 1. Open the desired notebook (`example1_timexsigma.nb` or `example2_pdelta.nb`).
 2. Execute each cell using `shift+enter`. You can also execute all cells by pressing `cmd+a` (`ctrl+a` in linux/windows) followed by `shift+enter`
 
+## Future work
+
+One of the key future directions for this project is to integrate the available solvers (the Boram solver and the traditional alternate minimization solver) into a unified framework. This integration aims to leverage the strengths of both solvers, enhancing the overall performance and robustness of the solution process.
