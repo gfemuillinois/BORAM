@@ -1,17 +1,24 @@
 # phasefield-jr-boram
-#### Simple one file C++ examples to run 2D phase field problems using a robust L-BFGS solver
+### Simple one file C++ examples to run 2D phase field problems using a robust L-BFGS solver
+
+### NOTE: The project has been ported to: [BORAM repository @ gfemuillinois](https://github.com/gfemuillinois/boram_bfgs)
+
 
 This project provides simple C++ examples to solve 2D phase field problems using the Boram solver. The Boram solver implements a robust over relaxated L-BFGS with line search as published on:
+
 [Paper to be published](#)
+
 Additionally, the project includes a traditional alternate minimization solver for comparison purposes. Future work may involve integrating and optimizing the use of both solvers to enhance performance and robustness.
 
 The project is based on the implementation of phase field available on [https://github.com/nathanshauer/phasefield-jr](https://github.com/nathanshauer/phasefield-jr) and carries all necesary licenses.
 
-Implementation by:
-**Nathan Shauer** ([www.nathanshauer.com](http://www.nathanshauer.com)) - Phase-field code and integration w/ solver
-**Caio Ramos** ([cs-ramos@outlook.com](cs-ramos@outlook.com)) - Boram solver
+#### Implementation by:
 
-#### Note on the name Boram
+* **Nathan Shauer** ([www.nathanshauer.com](http://www.nathanshauer.com)) - Phase-field code and integration w/ solver
+
+* **Caio Ramos** ([cs-ramos@outlook.com](cs-ramos@outlook.com)) - Boram solver
+
+### Note on the name Boram
 
 Boram has two meanings. Firstly, it is an acronym derived from the names **B**FGS, **O**ver **R**elaxated, and **A**lternate **M**inimization. Secondly, in Korean, Boram means "*worthwhile*".
 
