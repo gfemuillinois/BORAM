@@ -1,26 +1,28 @@
 # phasefield-jr-boram
-### Simple one file C++ examples to run 2D phase field problems using a robust L-BFGS solver
+### Simple one-file C++ examples to run 2D phase field problems using a robust L-BFGS solver
 
 ### NOTE: The project has been ported to: [BORAM repository @ gfemuillinois](https://github.com/gfemuillinois/boram_bfgs)
 
 
-This project provides simple C++ examples to solve 2D phase field problems using the Boram solver. The Boram solver implements a robust over relaxated L-BFGS with line search as published on:
+This project provides simple C++ examples to solve 2D phase field problems using the BORAM solver. The BORAM solver implements a robust L-BFGS solver with line search as published on:
 
 [Paper to be published](#)
 
-Additionally, the project includes a traditional alternate minimization solver for comparison purposes. Future work may involve integrating and optimizing the use of both solvers to enhance performance and robustness.
+Please reference the above papers if you use the BORAM in your research.
 
-The project is based on the implementation of phase field available on [https://github.com/nathanshauer/phasefield-jr](https://github.com/nathanshauer/phasefield-jr) and carries all necesary licenses.
+Additionally, the project includes a traditional alternate minimization solver for comparison purposes. Future work may involve combining and optimizing both solvers, together with over relaxation, to further enhance performance and robustness.
+
+The project is based on the implementation of phase field available on [https://github.com/nathanshauer/phasefield-jr](https://github.com/nathanshauer/phasefield-jr) and carries all necessary licenses.
 
 #### Implementation by:
 
 * **Nathan Shauer** ([www.nathanshauer.com](http://www.nathanshauer.com)) - Phase-field code and integration w/ solver
 
-* **Caio Ramos** ([cs-ramos@outlook.com](cs-ramos@outlook.com)) - Boram solver
+* **Caio Ramos** ([cs-ramos@outlook.com](cs-ramos@outlook.com)) - BORAM solver
 
-### Note on the name Boram
+### Note on the name BORAM
 
-Boram has two meanings. Firstly, it is an acronym derived from the names **B**FGS, **O**ver **R**elaxated, and **A**lternate **M**inimization. Secondly, in Korean, Boram means "*worthwhile*".
+BORAM has two meanings. Firstly, it is an acronym derived from the names **B**FGS, **O**ver **R**elaxated, and **A**lternate **M**inimization. Secondly, in Korean, Boram means "*worthwhile*".
 
 ## Configuration
 
@@ -141,4 +143,4 @@ To execute the notebooks:
 
 ## Future work
 
-One of the key future directions for this project is to integrate the available solvers (the Boram solver and the traditional alternate minimization solver) into a unified framework. This integration aims to leverage the strengths of both solvers, enhancing the overall performance and robustness of the solution process.
+One of the key future directions for this project is to integrate the available solvers (the BORAM solver and the traditional alternate minimization solver) into a unified framework. This integration aims to leverage the strengths of both solvers, enhancing the overall performance and robustness of the solution process.
