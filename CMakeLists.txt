@@ -8,7 +8,11 @@ include_directories(${EIGEN3_INCLUDE_DIR})
 
 include_directories(${CMAKE_SOURCE_DIR}/boram)
 
-add_executable(example1 example1.cpp)
+add_executable(
+    example1 
+    example1.cpp
+    physics.h 
+    )
 target_link_libraries(example1 PUBLIC Eigen3::Eigen)
 
 add_executable(example2 example2.cpp)
