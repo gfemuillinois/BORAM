@@ -58,7 +58,6 @@ using RefEigenVec = Eigen::Ref<EigenVec<T>>;
  *       overwrite it with the solution.
  * 
  *    AQUINATHAN Shouldn't we also implement solveAnalysis? AM uses it for each physics
- *    AQUINATHAN Shouldn't we also implement computeEnergy?
  */
 template <typename Foo, typename realType = double>
 class minSolver {
@@ -434,10 +433,6 @@ protected:
          // Updating global vector mapping for next physics.
          initPos += physDim; 
 
-         // Computing energy AQUINATHAN Should we remove this function?
-         energy = (*it)->computeEnergy();
-
-
          // Saving norms values to the monitoring file for each
          // physics.
          line << std::fixed << std::setprecision(5) << std::scientific
@@ -446,7 +441,6 @@ protected:
                            << std::setw(15) << absL2NormdSol
                            << std::setw(15) << absLInfNormGrad
                            << std::setw(15) << absL2NormGrad
-                           << std::setw(15) << energy 
                            << std::setw(15) << relL2NormdSol
                            << std::setw(16) << relL2NormGrad << "\n";
          
@@ -485,8 +479,6 @@ protected:
       aux = "|G|"; skip = 5 + 0.5*aux.size(); rest = 10 - skip;
       line << std::setw(skip + 4 + rest) << aux;
       aux = "||G||"; skip = 5 + 0.5*aux.size(); rest = 11 - skip;
-      line << std::setw(skip + 5 + rest) << aux;
-      aux = "Energy"; skip = 5 + 0.5*aux.size(); rest = 11 - skip;
       line << std::setw(skip + 4 + rest) << aux;
       aux = "||dX||/||dX0||"; skip = 5 + 0.5*aux.size(); rest = 11 - skip;
       line << std::setw(skip + 9 + rest) << aux;

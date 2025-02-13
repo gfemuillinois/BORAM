@@ -148,18 +148,6 @@ public:
       return this->_nIt;
    }
 
-   realType computeEnergy() {
-
-      typename std::vector<Foo*>::iterator it;
-
-      realType energy = 0.0;
-      for(it = this->_mphys.begin(); it != this->_mphys.end(); it++) {
-         energy += (*it)->computeEnergy();
-      }
-
-      return energy;
-   }
-
 protected:
    inline void applyLBFGS(RefVec<realType> X, 
                            RefVec<realType> dX, 
