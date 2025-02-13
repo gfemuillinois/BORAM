@@ -120,6 +120,24 @@ To visualize the output in ParaView using VTK files, follow these steps:
 
 5. **Visualize the data**: Use the various visualization tools in ParaView to explore the simulation results. You can adjust the display properties, apply filters, and create animations to better understand the phase field analysis.
 
+### Example 1
+
+The adopted mesh is uniform, with all elements having the same size.
+<img src="figures/ex1_mesh.png" alt="Example 1: Bar under tension" width="60%">
+
+Next are color plots of the phase field at the onset of propagation and after propagation.
+<img src="figures/ex1_pf1.png" alt="Example 1: Bar under tension" width="50%"><img src="figures/ex1_pf2.png" alt="Example 1: Bar under tension" width="50%">
+
+### Example 2
+The adopted mesh is created within the code for simplicity, featuring (simple) necessary refinement in the region where fracture will propagate.
+<img src="figures/ex2_mesh.png" alt="Example 1: Single-edge notch plate under tension" width="50%">
+
+Below are figures showing the opening fracture at the onset of propagation and after propagation using the warp by vector filter.
+<img src="figures/ex2_d1.png" alt="Example 1: Single-edge notch plate under tension" width="40%"><img src="figures/ex2_d2.png" alt="Example 1: Single-edge notch plate under tension" width="40%">
+
+Next are color plots of the phase field at the onset of propagation and after propagation.
+<img src="figures/ex2_pf1.png" alt="Example 1: Single-edge notch plate under tension" width="40%"><img src="figures/ex2_pf2.png" alt="Example 1: Single-edge notch plate under tension" width="40%">
+
 ## Quantitative analysis using Mathematica notebooks
 
 The project includes two Mathematica notebooks for quantitative analysis of the simulation results:
@@ -140,6 +158,12 @@ To execute the notebooks:
 
 1. Open the desired notebook (`example1_timexsigma.nb` or `example2_pdelta.nb`).
 2. Execute each cell using `shift+enter`. You can also execute all cells by pressing `cmd+a` (`ctrl+a` in linux/windows) followed by `shift+enter`
+
+### Example 1
+<img src="figures/ex1_plot.png" alt="Example 1: Sigma x time" width="50%">
+
+### Example 2
+<img src="figures/ex2_plot.png" alt="Example 2: Reaction force x imposed displacement" width="50%">
 
 ## Future work
 
