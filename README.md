@@ -1,7 +1,7 @@
 # phasefield-jr-boram
 ### Simple one-file C++ examples to run 2D phase field problems using a robust L-BFGS solver
 
-### NOTE: The project has been ported to: [BORAM repository @ gfemuillinois](https://github.com/gfemuillinois/boram_bfgs)
+### NOTE: The project has been ported to: [BORAM repository @ gfemuillinois](https://github.com/gfemuillinois/BORAM)
 
 
 This project provides simple C++ examples to solve 2D phase field problems using the BORAM solver. The BORAM solver implements a robust L-BFGS solver with line search as published on:
